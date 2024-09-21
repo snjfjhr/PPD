@@ -1,0 +1,54 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import math
+from matplotlib import patches
+from matplotlib.patches import ArrowStyle
+import cv2
+
+au=1.495978707e13   #Astronomical Unit(cm)
+Rg=1e14   #Gravitational Radius(cm)
+R=np.linspace(0,20,100000)
+
+H=np.zeros(len(R))
+fs=100
+h=0
+c='black'
+lw=3
+for i in range(len(R)):
+    if R[i]*au<=Rg:
+        H[i]=(R[i]*au/Rg)**(3/2)
+        h+=1
+
+h0=int(h/10)
+R0g,H1,H2=R[h0:h],H[h0:h],-H[h0:h]
+cl=np.linspace(0,1,h-h0)
+windarrow0=dict(arrowstyle=ArrowStyle('simple',tail_width=1,head_length=5,head_width=4),color=c)
+windarrow1=dict(arrowstyle=ArrowStyle('simple',tail_width=1,head_length=6,head_width=4),connectionstyle='angle3,angleA=80,angleB=30',color=c)
+windarrow2=dict(arrowstyle=ArrowStyle('simple',tail_width=1,head_length=6,head_width=4),connectionstyle='angle3,angleA=-80,angleB=-30',color=c)
+txt=[r'FUV ($6\ \mathrm{eV}<h\nu<13.6\ \mathrm{eV}$)',\
+     r'EUV ($13.6\ \mathrm{eV}<h\nu<0.1\ \mathrm{keV}$)',\
+     r'X-ray ($0.1\ \mathrm{keV}<h\nu<2\ \mathrm{keV}$)']
+
+plt.rcParams['font.family']='Times New Roman'
+plt.rcParams['mathtext.fontset']='cm'
+
+fig,ax=plt.subplots(figsize=(50,22.5)) #50,30 or 50,20
+for i in range(h-h0):
+    ax.plot([R0g[i],R0g[i]],[H1[i],H2[i]],c=(cl[i],cl[i],cl[i]))
+    ax.plot([-R0g[i],-R0g[i]],[H1[i],H2[i]],c=(cl[i],cl[i],cl[i]))
+
+ax.plot(R0g,H1,c='w',linewidth=lw),ax.plot(R0g,H2,c='w',linewidth=lw)
+ax.plot(-R0g,H1,c='w',linewidth=lw),ax.plot(-R0g,H2,c='w',linewidth=lw)
+circle=patches.Circle(xy=(0,0),radius=0.3,fc='r')
+ax.add_patch(circle)
+ax.annotate('',xy=(4,0.55),xytext=(0.31,0.19),arrowprops=windarrow0)
+ax.annotate('',xy=(5,2.3),xytext=(4.1,0.46),arrowprops=windarrow1)
+ax.annotate('',xy=(5.8,2.4),xytext=(4.9,0.61),arrowprops=windarrow1)
+ax.annotate('',xy=(6.6,2.5),xytext=(5.7,0.77),arrowprops=windarrow1)
+ax.text(0,0.35,'\n'.join(txt),size=fs*5/6,linespacing=1.5,va='bottom',ha='left',rotation=5)
+ax.set_xlim(-2,8)
+ax.set_ylim(-1.5,3)
+ax.spines['top'].set_visible(False),ax.spines['bottom'].set_visible(False)
+ax.spines['left'].set_visible(False),ax.spines['right'].set_visible(False)
+ax.set_xticks([])
+ax.set_yticks([])
