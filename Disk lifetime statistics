@@ -1,0 +1,215 @@
+program DiskLife
+  use,intrinsic::iso_fortran_env
+  implicit none
+
+  real(8)::StellarMass,Lf,Phie,Lx,alpha,dt,Mstar,Md0,Rg,c,tmax,ng,rfpeak,&
+       &rxpeak,Rgap,Tgap,lifetime
+  
+  real(8),parameter::pi=3.14159265359_8, yr=3.1536d7, au=1.495978707d13, &
+       & rmax=1.0d4, tmaxyr=1.0d8, dr=0.002_8, R1=50., G=6.6743d-8, &
+       & kB=1.380649d-16, Msun=1.9884d33, csRg=1.0d6, mH=1.67356d-24, &
+       & mmu=1.66054d-24, muu=2.34_8, mu=1.35_8, C1=0.14_8, A=0.3423_8, &
+       & B=-0.3612_8, D=0.2457_8, alphaB=2.6d-13, sf0=1.0d-12, sx0=5.1d-12
+
+  real(8)::Lf_i(23),Phie_i(23),Lx_i(23),alpha_i(23)
+  
+  real(8),allocatable::r(:),t(:),Md(:),cs(:),n0R(:),ulR(:),se(:),sf(:), &
+       & sx(:),spe(:),sigma(:,:),S(:,:)
+  
+  integer::i,j,k,l,m,n,nr,nt,ios,aa,bb,cc,dd,time_begin_c,time_end_c,&
+       &CountPerSec,CountMax,maxi
+
+  character(1),parameter::esc=achar(27),cr=achar(13)
+
+  call system_clock(time_begin_c,CountPerSec,CountMax)
+
+  nr=int(1/dr+1)
+  allocate(r(nr))
+  do i=1,nr
+     r(i)=(i-1)*dr
+  end do
+
+  tmax=tmaxyr*yr
+  dt=dr**2/3.
+
+  nt=int(1/dt+1)
+  allocate(t(nt))
+  do j=1,nt
+     t(j)=(j-1)*dt
+  end do
+
+  allocate(Md(nt))
+  allocate(cs(nr))
+  allocate(n0R(nr))
+  allocate(ulR(nr))
+  allocate(se(nr))
+  allocate(sf(nr))
+  allocate(sx(nr))
+  allocate(spe(nr))
+  allocate(sigma(nt,nr))
+  allocate(S(nt,nr))
+
+  Md=0.
+  cs=0.
+  n0R=0.
+  ulR=0.
+  se=0.
+  sf=0.
+  sx=0.
+  spe=0.
+  sigma=0.
+  S=0.
+  Tgap=0.
+  Rgap=0.
+  lifetime=0.
+  
+  StellarMass=1.0_8
+
+  !'SDparameter12_4.csv' is the file in which four parameters are listed.
+  open(unit=10, iostat=ios, file='SDparameter12_4.csv', action='read', &
+       & form='formatted', status='old')
+  if (ios /= 0) then
+     write(*,*) 'Failed to open file10 for output'
+     stop
+  end if
+  read(10,'()')
+  do i=1,23
+     read(10,*) Lf_i(i),Phie_i(i),Lx_i(i),alpha_i(i)
+  end do
+  close(10)
+
+  Mstar=Msun*StellarMass
+  Md0=0.1*Mstar
+  Rg=G*Mstar/csRg**2
+  rfpeak=4.0*StellarMass
+  rxpeak=2.5*StellarMass
+  
+  do j=2,nr
+     cs(j)=csRg*(rmax*r(j)**2.*au/Rg)**(-0.25)
+  end do
+
+  
+  open(unit=30, iostat=ios, file='SDparameterdoloop12_4.dat', action='write', &
+       & form='formatted', status='replace')
+  if (ios /= 0) then
+     write(*,*) 'Failed to open file30 for output'
+     stop
+  end if
+
+  !12^4 calculations
+  maxi=12
+  write(*,*)
+  do aa=1,maxi
+     Lf=Lf_i(aa)
+     do bb=1,maxi
+        Phie=Phie_i(bb)
+        do cc=1,maxi
+           Lx=Lx_i(cc)
+           do dd=1,maxi
+              alpha=alpha_i(dd)
+              
+              !Coefficient of the diffusion equation
+              c=(3.*10.*(100.*au)**0.5*alpha*kB*tmax)/(4.*(G*Mstar)**0.5*muu*mmu*rmax*au)
+              
+              !EUV-evaporation
+              ng=C1*(3.*Phie/(4.*pi*alphaB*Rg**3.))**0.5
+              do j=2,nr
+                 n0R(j)=ng*(2./((rmax*r(j)**2.*au/Rg)**7.5+(rmax*r(j)**2.*au/Rg)**12.5))**0.2
+              end do
+              do i=1,nr
+                 if (rmax*r(i)**2.*au>=0.1*Rg) then
+                    ulR(i)=cs(i)*A*exp(B*(rmax*r(i)**2.*au/Rg-0.1))*(rmax*r(i)**2.*au/Rg-0.1)**D
+                 end if
+              end do
+              do j=1,nr
+                 se(j)=2.*n0R(j)*ulR(j)*mu*mH
+              end do
+
+              !FUV-evaporation
+              do i=1,nr
+                 if (rmax*r(i)**2.>rfpeak) then
+                    sf(i)=sf0*(Lf/(10.**31.7))*(rmax*r(i)**2./4.)**(-2.)
+                 end if
+              end do
+              
+              !X-ray-evaporation
+              do j=1,nr
+                 if (rmax*r(j)**2.>rxpeak) then
+                    sx(j)=sx0*(Lx/1.0d30)*(rmax*r(j)**2./2.5)**(-2.)
+                 end if
+              end do
+
+              !Photoevaporation rate (three types of photons put together)
+              do k=1,nr
+                 spe(k)=max(se(k),sf(k),sx(k))
+              end do
+
+              !Initial profile of surface density
+              sigma(1,1)=0
+              sigma(1,nr)=0
+              do l=2,nr-1
+                 sigma(1,l)=(Md0/(2.*pi*(R1*au)*(rmax*au)*r(l)**2.))*exp(-rmax/R1*r(l)**2.)*r(l)**3.
+              end do
+
+              !Explicit scheme
+              do m=1,nt-1
+                 sigma(m,1)=0
+                 sigma(m,nr)=0
+                 do n=2,nr-1
+                    sigma(m+1,n) = sigma(m,n) + c*(dt/dr**2.)*(sigma(m,n+1)-2*sigma(m,n)+sigma(m,n-1)) - spe(n)*r(n)**3.*tmax*dt
+                    S(m,n)=sigma(m,n)/(r(n)**3.)
+                 end do
+              end do
+
+              !Where/When the gap is formed
+              loop1:do k=2,nt
+                 loop2:do l=2,int((100./rmax)**(0.5)/dr)
+                    if (S(k,l)<1.0d-5) then
+                       Tgap=k*tmaxyr*dt
+                       Rgap=rmax*r(l)**2.
+                       exit loop1
+                    end if
+                 end do loop2
+              end do loop1
+  
+              !Disk mass
+              loop3:do m=1,nt
+                 Md(m)=0.
+                 do n=1,nr-1
+                    Md(m)=Md(m)+2.*pi*rmax*r(n)**2.*au*S(m,n)*(r(n+1)**2.-r(n)**2.)*rmax*au
+                 end do
+                 if (Md(m)<Md0*1.0d-8) then
+                    lifetime=m*tmaxyr*dt
+                    
+                    !Display the elapsed time
+                    call system_clock(time_end_c) 
+                    write(30,'(f3.1,4e9.3,f4.1,2e9.3)') StellarMass,Lf,Phie,Lx,alpha,Rgap,Tgap,lifetime
+                    write(*,'(a)',advance='no') esc//'M'
+                    write(*,'(i0,a,i0,a,i0,a)') &
+                         &(aa-1)*maxi**3+(bb-1)*maxi**2+(cc-1)*maxi+dd,&
+                         &' / ',maxi**4,' (runtime = ',&
+                         &int((time_end_c-time_begin_c)/CountPerSec),' sec)'
+                    exit
+                 end if
+              end do loop3
+           end do
+        end do
+     end do
+  end do
+
+  close(30)
+  
+  deallocate(r)
+  deallocate(t)
+  deallocate(cs)
+  deallocate(n0R)
+  deallocate(ulR)
+  deallocate(sdiff)
+  deallocate(sf)
+  deallocate(sx)
+  deallocate(spe)
+  deallocate(sigma)
+  deallocate(S)
+  
+  stop
+end program DiskLife
