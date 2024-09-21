@@ -1,0 +1,108 @@
+import numpy as np
+import matplotlib.pyplot as plt
+import japanize_matplotlib
+import math
+import IPython
+from IPython.display import HTML
+from matplotlib.animation import ArtistAnimation
+import time
+from tqdm.notebook import tqdm
+plt.rcParams['font.family']='Times New Roman'
+
+yr=3.1536e7   #1 year(s)
+au=1.495978707e13   #Astronomical Unit(cm)
+G=6.6743e-8   #Gravitational Constant(cm^3 g^-1 s^-2)
+M_sun=1.9884e33   #Solar mass(g)
+R1=10   #scalefactor(au)
+Md_0=0.1*M_sun   #initial disk mass(g)
+Mdot0_0=4.2e-7*M_sun   #initial mass-loss rate at the origin point
+Rg=1e14   #Gravitational Radius(cm)
+ts=Md_0/(2*Mdot0_0)*yr   #Viscous timescale(s)
+mH=1.00784/6.02214076e23   #H atom mass(g)
+n0_Rg=5.7e4   #number density of the photoevaporation flow(cm^-3)
+
+rmax=2500   #Disk radius(au)
+tmax=1e8*yr   #Time range to be calculated(s)
+dr=0.0025   #position interval
+dt=dr**2/3   #time interval
+c=1   #proportional constant
+
+r=np.arange(0,1+dr,dr)   #normalized radius (rmax*r**2 denotes the true radius[au])
+t=np.arange(0,0.3+dt,dt)   #normalized time (tmax*t denotes the true time[yr])
+nr=len(r)   #position gridpoint number
+nt=len(t)   #time gridpoint number
+sigma0=np.zeros(nr)   #initial surface density
+sigma_a=np.zeros((nt,nr))   #time development of surface density (both viscosity and photoevaporation)
+sigma_b=np.zeros((nt,nr))   #time development of surface density (only viscosity)
+
+a=np.zeros(nr)   #sonic speed (function of distance)
+a_Rg=(G*M_sun/Rg)**0.5   #sonic speed at Rg
+c_R=a_Rg/(Rg**(-1/4))   #The sonic speed is proportional to -1/4 power of distance. The constant of proportionality is c_R.
+for i in range(1,nr-1):
+    a[i]=c_R*(rmax*r[i]**2*au)**(-1/4)
+A=2*n0_Rg*mH   #Constant part of Σdot
+
+#initial surface density
+for i in range(1,nr-1):
+    sigma0[i]=(Md_0/(2*math.pi*(R1*au)*(rmax*au)*r[i]**2))*np.exp(-rmax/R1*r[i]**2)*r[i]**3
+for j in range(nr):
+    sigma_a[0,j]=sigma0[j]
+    sigma_b[0,j]=sigma0[j]
+
+
+#time development of surface density (both viscosity and photoevaporation)
+#explicit scheme
+for i in tqdm(range(nt-1)):   #next time gridpoint
+    sigma_a[i,0],sigma_a[i,-1]=0,0
+    for j in range(1,nr-1):   #Σ at position r excluding both ends
+        if rmax*r[j]**2<=Rg/au:
+            sigma_a[i+1,j]=sigma_a[i,j] + c*(dt/dr**2)*(sigma_a[i,j+1]-2*sigma_a[i,j]+sigma_a[i,j-1])
+        else:
+            sigma_a[i+1,j]=sigma_a[i,j] + c*(dt/dr**2)*(sigma_a[i,j+1]-2*sigma_a[i,j]+sigma_a[i,j-1]) - A*a[j]*(rmax*r[j]**2/(Rg/au))**(-5/2)*r[j]**3*tmax*dt
+
+#Convert to true surface density
+R,S_a=np.zeros(nr),np.zeros((nt,nr))
+for i in tqdm(range(nt),leave=False):
+    for j in range(1,nr):
+        R[j],S_a[i,j]=rmax*r[j]**2,sigma_a[i,j]/(r[j]**3)
+
+
+#time development of surface density (only viscosity)
+#explicit scheme
+for i in tqdm(range(nt-1),leave=False):   #next time gridpoint
+    sigma_b[i,0],sigma_b[i,-1]=0,0
+    for j in range(1,nr-1):   #Σ at position r excluding both ends
+        sigma_b[i+1,j]=sigma_b[i,j] + c*(dt/dr**2)*(sigma_b[i,j+1]-2*sigma_b[i,j]+sigma_b[i,j-1])
+
+#Convert to true surface density
+S_b=np.zeros((nt,nr))
+for i in tqdm(range(nt),leave=False):
+    for j in range(1,nr):
+        S_b[i,j]=sigma_b[i,j]/(r[j]**3)
+
+
+#draw graphs
+T_yr=np.array([0,1.3,1.41,1.43,1.6,1.8,2.0,2.4,2.8])
+
+fig=plt.figure(figsize=(40,20))
+plt.rcParams['font.family']='Times New Roman'
+plt.rcParams['mathtext.fontset']='cm'
+fs=40
+ax1=fig.add_subplot(121)
+ax2=fig.add_subplot(122)
+plt.subplots_adjust(wspace=0.1)
+
+for i in range(len(T_yr)):
+    ax1.plot(R[1:],S_a[int(T_yr[i]*1e7/(tmax/yr)/dt)][1:],label=T_yr[i])
+    ax2.plot(R[1:],S_b[int(T_yr[i]*1e7/(tmax/yr)/dt)][1:],label=T_yr[i])
+ax1.set_xlim(1e-1,10**3.25),ax2.set_xlim(1e-1,10**3.25)
+ax1.set_ylim(1e-6,1e5),ax2.set_ylim(1e-6,1e5)
+ax1.set_xlabel(r'Radius [au]',fontsize=fs),ax2.set_xlabel(r'Radius [au]',fontsize=fs)
+ax1.set_ylabel(r'Surface Density [g cm$^{-2}$]',fontsize=fs)
+ax1.tick_params(labelsize=fs*4/5,which='major',length=10),ax1.tick_params(labelsize=fs*4/5,which='minor',length=7)
+ax2.tick_params(labelsize=fs*4/5,which='major',length=10),ax2.tick_params(labelsize=fs*4/5,which='minor',length=7)
+ax1.set_xscale('log'),ax2.set_xscale('log')
+ax1.set_yscale('log'),ax2.set_yscale('log')
+ax1.legend(fontsize=fs*3/4,loc='upper right',edgecolor='black'),ax2.legend(fontsize=fs*3/4,loc='upper right',edgecolor='black')
+ax1.text(10**3.1,10**0.5,r'$\times\ 10^{7}\ \mathrm{yr}$',va='center',ha='right',fontsize=fs*3/4)
+ax2.text(10**3.1,10**0.5,r'$\times\ 10^{7}\ \mathrm{yr}$',va='center',ha='right',fontsize=fs*3/4)
